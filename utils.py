@@ -3,6 +3,30 @@ import torch
 import numpy as np
 import math
 import subprocess
+import skimage
+
+
+def imgaussfilt(data, radius):
+    return torch.tensor(skimage.filters.gaussian(data.numpy(), radius))
+
+
+def imgradient(data):
+    return torch.tensor(skimage.filters.sobel(data.numpy()))
+
+
+def estimate_lambda(data, blurs, thresholds):
+    data = torch.tensor(data)
+    lambda_est = torch.zeros(data.size)
+    cimg = torch.zeros(data.size)-1
+    for i in range(len(blurs)):
+        b = blurs[i]
+        t = thresholds[i]
+        fdata = imgaussfilt(data, b)
+        fgrad = imgaussfilt(imgradient(fdata), b/2)
+        mask = (fgrad < t) * (cimg == -1)
+        lambda_est[mask] = fdata[mask]
+        cimg[mask] = i
+    return lambda_est, cimg
 
 
 def log_process(p, logfile):

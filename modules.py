@@ -148,7 +148,7 @@ class Denoiser(nn.Module):
         return net_input
 
     def denoise(self, x, lam):
-        nxl = torch.cat([x, lam.cuda()], 1)
+        nxl = torch.cat([x, lam], 1)
         y = self.process(nxl)
         return y
 
@@ -170,7 +170,10 @@ class Denoiser(nn.Module):
 
     @staticmethod
     def load_model(path, filename):
-        checkpoint = torch.load(path + filename)
+        if torch.cuda.is_available():
+            checkpoint = torch.load(path + filename)
+        else:
+            checkpoint = torch.load(path + filename, map_location='cpu')
         model = checkpoint['model'](**checkpoint['config'])
         model.load_state_dict(checkpoint['state_dict'])
         return model
