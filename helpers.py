@@ -381,6 +381,9 @@ class Trainer:
 
     def train(self, model, train_set, criterion, logger, home_dir, **kwargs):
         model.train()
+        temp_args = {}
+        if 'error_target' in kwargs:
+            temp_args['error_target'] = kwargs['error_target']
         defaults = {'lr': 0.01, 'batch_size': 100, 'epochs': 10, 'report': 5, 'crop': 32, 'clip': None, 'decay': 0,
                     'epoch_frac': 1, 'restart': -1}
         kwargs = utils.get_arg_defaults(defaults, **kwargs)
@@ -420,6 +423,14 @@ class Trainer:
                     if kwargs['clip'] is not None:
                         self.clip_gradient(model, kwargs['clip'])
                     self.optimizer.step()
+
+                    if 'error_target' in temp_args:
+                        if loss < temp_args['error_target']:
+                            model.noise += torch.rand(1).item()/20
+                        if loss > temp_args['error_target']:
+                            model.noise -= torch.rand(1).item()/20
+                            if model.noise < 0:
+                                model.noise = 0
 
                     # record loss
                     error_vars['loss'] = error_vars['loss'].detach()

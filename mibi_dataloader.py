@@ -85,7 +85,10 @@ class MultiTIFLoader:
         files = os.listdir(directory)
         random.shuffle(files)
         try:
-            files = files[0:1000]
+            if 'number' in kwargs:
+                files = files[0:(kwargs['number']-1)]
+            else:
+                files = files[0:1000]
         except:
             pass
 
@@ -258,7 +261,8 @@ class MIBIData:
             self.flag = 'complex'
         else:
             self.images = kwargs['images']
-            self.labels = kwargs['labels']
+            if 'labels' in kwargs:
+                self.labels = kwargs['labels']
             self.source = kwargs['source']
         
         self.num_points = self.images.size()[0]
@@ -296,11 +300,7 @@ class MIBIData:
         img_crop = self.crop_image(self.images[point_index], x, y)
         if self.flag == 'normal':
             x_img = self.rotate(img_crop, rot)
-            lam = torch.rand(1).item()*5
-            l_img = torch.zeros(x_img.shape)+lam
-            noise = torch.tensor(np.random.poisson(lam, x_img.shape))
-            n_img = x_img + noise.float()
-            return x_img, n_img, l_img
+            return x_img
         else:
             lab_crop = self.crop_image(self.labels[point_index], x, y)
             return self.rotate(img_crop, rot), self.rotate(lab_crop, rot)
@@ -308,15 +308,11 @@ class MIBIData:
     # should be overwwritten
     def get_samples(self, sample_indices, flatten):
         x_imgs = torch.zeros([len(sample_indices), 1, self.crop, self.crop], dtype=torch.float32)
-        n_imgs = torch.zeros([len(sample_indices), 1, self.crop, self.crop], dtype=torch.float32)
-        l_imgs = torch.zeros([len(sample_indices), 1, self.crop, self.crop], dtype=torch.float32)
         for i in np.arange(len(sample_indices)):
             j = sample_indices[i]
-            x_imgs[i, :], n_imgs[i, :], l_imgs[i, :] = self.get_image(j)
+            x_imgs[i, :] = self.get_image(j)
         samples = {
-            'x': x_imgs.float().cuda(),
-            'nx': n_imgs.float().cuda(),
-            'l': l_imgs.float().cuda()
+            'x': x_imgs.float().cuda()
         }
         return samples
 

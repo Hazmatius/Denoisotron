@@ -11,13 +11,13 @@ def imgaussfilt(data, radius):
 
 
 def imgradient(data):
-    return torch.tensor(skimage.filters.sobel(data.numpy()))
+    return torch.sqrt((torch.tensor(skimage.filters.sobel(data.numpy()))**2)*2)*4
 
 
 def estimate_lambda(data, blurs, thresholds):
     data = torch.tensor(data)
-    lambda_est = torch.zeros(data.size)
-    cimg = torch.zeros(data.size)-1
+    lambda_est = torch.zeros(data.size())
+    cimg = torch.zeros(data.size())-1
     for i in range(len(blurs)):
         b = blurs[i]
         t = thresholds[i]
@@ -26,6 +26,8 @@ def estimate_lambda(data, blurs, thresholds):
         mask = (fgrad < t) * (cimg == -1)
         lambda_est[mask] = fdata[mask]
         cimg[mask] = i
+    mask = cimg == -1
+    lambda_est[mask] = fdata[mask]
     return lambda_est, cimg
 
 

@@ -11,6 +11,54 @@ Part of what we need to fix is the way that the model learns spatial representat
 '''
 
 
+class SelfSupervisedEstimatorLoss(nn.Module):
+    def __init__(self, **kwargs):
+        super(SelfSupervisedEstimatorLoss, self).__init__()
+        self.recon_criterion = nn.MSELoss()
+
+    def forward(self, **kwargs):
+        loss = self.recon_criterion(kwargs['l_hat'], kwargs['x'])
+        return {'loss': loss}
+
+
+class AutoEstimatorLoss(nn.Module):
+    def __init__(self, **kwargs):
+        super(AutoEstimatorLoss, self).__init__()
+        self.recon_criterion = nn.MSELoss()
+
+    def forward(self, **kwargs):
+        loss = self.recon_criterion(kwargs['x_hat'], kwargs['x'])
+        return {'loss': loss}
+
+
+class EstimatorModuleLoss(nn.Module):
+    def __init__(self, **kwargs):
+        super(EstimatorModuleLoss, self).__init__()
+        self.recon_criterion = nn.L1Loss()
+
+    def forward(self, **kwargs):
+        x_prime = kwargs['x_prime']
+        estimate = kwargs['estimate']
+
+        # print(estimate.is_cuda, x_center.is_cuda)
+        loss = self.recon_criterion(estimate, x_prime)
+        return {'loss': loss}
+
+
+class LambdaEstimatorLoss(nn.Module):
+    def __init__(self, **kwargs):
+        super(LambdaEstimatorLoss, self).__init__()
+        self.recon_criterion = nn.MSELoss()
+
+    def forward(self, **kwargs):
+        x = kwargs['x']
+        l_hat = kwargs['l_hat']
+        l_hat_2 = kwargs['l_hat_2']
+        l_hat_3 = kwargs['l_hat_3']
+        loss = (self.recon_criterion(l_hat, x) + self.recon_criterion(l_hat_2, x) + self.recon_criterion(l_hat_3, x))/3
+        return {'loss': loss}
+
+
 class EstimatorLoss(nn.Module):
     def __init__(self, **kwargs):
         super(EstimatorLoss, self).__init__()
