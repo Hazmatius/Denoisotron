@@ -303,6 +303,7 @@ class MIBIData:
             return x_img
         else:
             lab_crop = self.crop_image(self.labels[point_index], x, y)
+            lab_crop = lab_crop * (2**(torch.randn(1)/2))
             return self.rotate(img_crop, rot), self.rotate(lab_crop, rot)
 
     # should be overwwritten
