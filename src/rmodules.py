@@ -1,11 +1,10 @@
+import os
+
+import numpy as np
 import torch
 import torch.nn as nn
-import modules
-from collections import OrderedDict
-import os
-import numpy as np
-import utils as utils
-import torch.nn.functional as F
+
+from src import modules, utils as utils
 
 
 def deconvout_(in_size, ker, pad, stride, dil):

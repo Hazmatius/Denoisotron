@@ -1,8 +1,9 @@
-import sys
+import copy
 import json
 import os
-import copy
-import mibi_dataloader
+import sys
+
+from src import mibi_dataloader
 
 json_file = sys.argv[1]
 with open(json_file) as json_data:

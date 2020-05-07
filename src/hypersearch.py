@@ -1,10 +1,10 @@
-import sys
 import json
 import os
 import shutil
-import errno
 import subprocess
-import utils
+import sys
+
+from src import utils, helpers
 
 
 def copydir(src, dst):
@@ -18,7 +18,6 @@ json_file = sys.argv[1]
 if len(sys.argv) == 3:
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     print(os.getcwd())
-    import helpers
     hypersearcher = helpers.HyperSearcher()
     hypersearcher.run_hypersearch(json_file)
 elif len(sys.argv) == 2:

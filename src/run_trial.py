@@ -1,10 +1,9 @@
 import json
 import sys
-import os
 
 # sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # from . import helpers
-import helpers
+from src import helpers
 
 if sys.argv[1] == 'train':
     hyper_config = json.loads(sys.argv[2])

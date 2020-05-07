@@ -1,12 +1,13 @@
-import torch
-from modules import Denoiser
-from skimage import io
 import os
+
 import matplotlib.pyplot as plt
-import skimage
 import scipy.signal as signal
-import numpy as np
-from matplotlib.widgets import Slider, Button, RadioButtons, TextBox
+import skimage
+import torch
+from matplotlib.widgets import Slider, TextBox
+from skimage import io
+
+from src.modules import Denoiser
 
 
 def get_data(directory, point_name, channel_name):

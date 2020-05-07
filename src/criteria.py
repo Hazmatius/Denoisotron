@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
-import utils
-import numpy as np
 
+from src import utils
 
 '''
 I think we need to rethink how the combinator works
