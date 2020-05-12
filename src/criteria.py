@@ -10,6 +10,31 @@ Part of what we need to fix is the way that the model learns spatial representat
 '''
 
 
+class DistillerLoss(nn.Module):
+    def __init__(self, **kwargs):
+        super(DistillerLoss, self).__init__()
+
+        self.alpha  = kwargs['alpha']
+        self.beta = kwargs['beta']
+        self.gamma = kwargs['gamma']
+
+        self.recon_criterion = nn.MSELoss() # L1Loss?
+
+        self.relu = nn.ReLU()
+
+    def forward(self, **kwargs):
+        recon_loss = self.recon_criterion(kwargs['x_hat'], kwargs['x'])
+
+        y = kwargs['y']
+        ortho_loss = (torch.mm(y, y.t())**2).mean()
+
+        sign_loss = self.relu(-1 * y).mean()
+
+        loss = self.alpha * recon_loss + self.beta * ortho_loss + self.gamma * sign_loss
+
+        return {'loss': loss}
+
+
 class SelfSupervisedEstimatorLoss(nn.Module):
     def __init__(self, **kwargs):
         super(SelfSupervisedEstimatorLoss, self).__init__()

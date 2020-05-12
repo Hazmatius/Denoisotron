@@ -10,6 +10,163 @@ import math
 import copy
 import pickle
 from scipy.ndimage import gaussian_filter
+import exifread
+from skimage import io as skimage_io
+from scipy import io as scipy_io
+
+
+def loadTIFF_folder(point_path, subfolder='TIFs'):
+    data_path = point_path + '/' + subfolder + '/'
+    files = os.listdir(data_path)
+    tifs = list()
+    for file in files:
+        if file.endswith('.tif') or file.endswith('.tiff'):
+            tifs.append(file)
+    labels = list()
+    counts = dict()
+    tags = dict()
+    for tif in tifs:
+        label = tif.replace('.tif', '')
+        labels.append(label)
+        counts[label] = skimage_io.imread(data_path + '/' + tif).astype(int)
+        with open(data_path + '/' + tif, 'rb') as f:
+            tags[label] = exifread.process_file(f)
+    point = dict()
+    point['counts'] = counts
+    point['labels'] = labels
+    point['tags'] = tags
+    return point
+
+
+def getMatrixFromDict(point):
+    labels = point['labels']
+    test_img = torch.tensor(point['counts'][labels[0]])
+    width = test_img.size(0)
+    height = test_img.size(1)
+    matrix = torch.zeros([len(labels), width, height]).float()
+    for i in range(len(labels)):
+        label = labels[i]
+        matrix[i, :, :] = torch.tensor(point['lambdas'][label]).float()
+    return matrix, labels
+
+
+def loadmat(filename):
+    '''
+    this function should be called instead of direct spio.loadmat
+    as it cures the problem of not properly recovering python dictionaries
+    from mat files. It calls the function check keys to cure all entries
+    which are still mat-objects
+    '''
+    data = scipy_io.loadmat(filename, struct_as_record=False, squeeze_me=True)
+    return _check_keys(data)
+
+def _check_keys(dict):
+    '''
+    checks if entries in dictionary are mat-objects. If yes
+    todict is called to change them to nested dictionaries
+    '''
+    for key in dict:
+        if isinstance(dict[key], scipy_io.matlab.mio5_params.mat_struct):
+            dict[key] = _todict(dict[key])
+    return dict
+
+def _todict(matobj):
+    '''
+    A recursive function which constructs from matobjects nested dictionaries
+    '''
+    dict = {}
+    for strg in matobj._fieldnames:
+        elem = matobj.__dict__[strg]
+        if isinstance(elem, scipy_io.matlab.mio5_params.mat_struct):
+            dict[strg] = _todict(elem)
+        else:
+            dict[strg] = elem
+    return dict
+
+
+def loadPoint_mat(point_path):
+    point = loadmat(point_path)
+    labels = point['labels']
+    for i in range(len(labels)):
+        labels[i] = labels[i].strip()
+    point['labels'] = labels
+    return point
+
+
+class FlatTIFLoader:
+    def __init__(self):
+        pass
+
+    @staticmethod
+    def load_folder_of_points(**kwargs):
+        directory = kwargs['folder']
+
+        files = os.listdir(directory)
+        random.shuffle(files)
+
+        points = list()
+        for file in files:
+            if not file[0] == '.':
+                print(file)
+                points.append(loadPoint_mat(directory + file))
+
+        test_point = points[0]
+        labels = test_point['labels']
+        num_channels = len(labels)
+
+        pixels = torch.zeros([0, num_channels]).float()
+
+        for point in points:
+            point_pixels, labels = getMatrixFromDict(point)
+            point_pixels = torch.flatten(point_pixels, start_dim=1).float().transpose(0,1)
+            pixels = torch.cat([pixels, point_pixels], dim=0)
+
+        return pixels, labels
+
+
+class FlatMIBIData:
+    def __init__(self, **kwargs):
+        tiff_loader = FlatTIFLoader()
+
+        self.pixels, self.labels = tiff_loader.load_folder_of_points(**kwargs)
+        self.num_labels = len(self.labels)
+        self.num_samples = self.pixels.size(0)
+
+
+    def get_samples(self, sample_indices):
+        pxs = torch.zeros([len(sample_indices), self.num_labels], dtype=torch.float32)
+        for i in range(len(sample_indices)):
+            pxs[i, :] = self.pixels[sample_indices[i], :]
+        samples = {
+            'x': pxs
+        }
+        return samples
+
+    def prepare_epoch(self):
+        self.sample_queue = np.random.permutation(int(self.num_samples))
+
+    def get_epoch_length(self):
+        return int(self.num_samples)
+
+    def get_next_minibatch_idxs(self, minibatch_size):
+        if len(self.sample_queue) == 0:  # there is nothing left in the minibatch queue
+            return None
+        elif len(self.sample_queue)<minibatch_size:  # we just have to return the last of the dataset
+            return None
+            # minibatch_idxs = np.copy(self.sample_queue)
+            # self.sample_queue = np.array([])
+            # return minibatch_idxs
+        else:  # we return a normal minibatch
+            minibatch_idxs = np.copy(self.sample_queue[0:minibatch_size])
+            self.sample_queue = self.sample_queue[minibatch_size:]
+            return minibatch_idxs
+
+    def get_next_minibatch(self, minibatch_size):
+        sample_idxs = self.get_next_minibatch_idxs(minibatch_size)
+        if sample_idxs is None:
+            return None
+        else:
+            return self.get_samples(sample_idxs, False)
 
 
 class MultiTIFLoader:

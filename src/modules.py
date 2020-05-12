@@ -307,6 +307,48 @@ class SS_Submodule(nn.Module):
         return self.nonlin(self.mconv(input))
 
 
+class Distiller(nn.Module):
+    def __init__(self, **kwargs):
+        super(Distiller, self).__init__()
+
+        self.config = kwargs
+        self.start_epoch = 0
+
+        N = kwargs['dim']
+        self.encoder_mat = nn.Linear(N, N, bias=False)
+        self.encoder_mat.weight.data.copy(torch.eye(N)+torch.rand(N, N)/10)
+        self.decoder_mat = nn.Linear(N, N, bias=False)
+        self.decoder_mat.weight.data.copy(torch.eye(N)+torch.rand(N, N)/10)
+
+    def forward(self, **net_input):
+        self.decoder_mat.weight.data.clamp_(min=0, max=1)
+
+        x = net_input['x']
+        y = self.encoder_mat(x)
+        x_hat = self.deocder_mat(y)
+        net_input['y'] = y
+        net_input['x_hat'] = x
+
+    def save_model(self, path, filename):
+        model = {
+            'model': Distiller,
+            'config': self.config,
+            'state_dict': self.state_dict(),
+        }
+        torch.save(model, path + filename)
+
+    @staticmethod
+    def load_model(path, filename):
+        if torch.cuda.is_available():
+            checkpoint = torch.load(path + filename)
+        else:
+            checkpoint = torch.load(path + filename, map_location='cpu')
+        model = checkpoint['model'](**checkpoint['config'])
+        model.load_state_dict(checkpoint['state_dict'])
+        return model
+
+
+
 class SelfSupervisedEstimator(nn.Module):
     def __init__(self, **kwargs):
         super(SelfSupervisedEstimator, self).__init__()
