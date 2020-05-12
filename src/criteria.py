@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from src import utils
+import utils
 
 '''
 I think we need to rethink how the combinator works

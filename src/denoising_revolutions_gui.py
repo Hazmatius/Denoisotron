@@ -7,7 +7,7 @@ import torch
 from matplotlib.widgets import Slider, TextBox
 from skimage import io
 
-from src.modules import Denoiser
+from modules import Denoiser
 
 
 def get_data(directory, point_name, channel_name):

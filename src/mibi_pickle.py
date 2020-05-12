@@ -3,7 +3,7 @@ import json
 import os
 import sys
 
-from src import mibi_dataloader
+import mibi_dataloader
 
 json_file = sys.argv[1]
 with open(json_file) as json_data:

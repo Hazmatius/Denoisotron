@@ -1,10 +1,8 @@
 import os
-
 import exifread
 import torch
 from scipy import io as scipy_io
 from skimage import io as skimage_io
-
 from src.modules import SelfSupervisedEstimator
 
 
@@ -30,8 +28,10 @@ def loadTIFF_folder(point_path, subfolder='TIFs'):
     point['tags'] = tags
     return point
 
+
 def savePoint_mat(point, point_path):
     scipy_io.savemat(point_path + '.mat', point)
+
 
 def estimate_lambda(point, network):
     if torch.cuda.is_available():
@@ -53,13 +53,16 @@ def estimate_lambda(point, network):
         point['lambdas'] = lambdas
     return point
 
-estimator_folder = '/Users/raymondbaranski/GitHub/Denoisotron/models/'
-estimator_name = 'estimator-2'
-input_path = '/Volumes/ALEX_SSD/BANGELO_LAB/190615/extracted/Point1'
-output_path = '/Volumes/G-DRIVE USB/Point1'
 
-estimator = SelfSupervisedEstimator.load_model(estimator_folder, estimator_name)
 
-point = loadTIFF_folder(input_path)
-point = estimate_lambda(point, estimator)
-savePoint_mat(point, output_path)
+
+# estimator_folder = '/Users/raymondbaranski/GitHub/Denoisotron/models/'
+# estimator_name = 'estimator-2'
+# input_path = '/Volumes/ALEX_SSD/BANGELO_LAB/190615/extracted/Point1'
+# output_path = '/Volumes/G-DRIVE USB/Point1'
+#
+# estimator = SelfSupervisedEstimator.load_model(estimator_folder, estimator_name)
+#
+# point = loadTIFF_folder(input_path)
+# point = estimate_lambda(point, estimator)
+# savePoint_mat(point, output_path)

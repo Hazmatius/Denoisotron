@@ -13,7 +13,7 @@ import mibi_dataloader
 import numpy as np
 import torch
 
-from src import utils as utils
+import utils as utils
 
 
 # helper function for dict_factor

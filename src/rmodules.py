@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src import modules, utils as utils
+import modules, utils as utils
 
 
 def deconvout_(in_size, ker, pad, stride, dil):
