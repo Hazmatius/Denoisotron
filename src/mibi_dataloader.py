@@ -132,13 +132,16 @@ class FlatMIBIData:
         self.num_labels = len(self.labels)
         self.num_samples = self.pixels.size(0)
 
+    # dummy function
+    def set_crop(self, crop):
+        pass
 
-    def get_samples(self, sample_indices):
+    def get_samples(self, sample_indices, flatten):
         pxs = torch.zeros([len(sample_indices), self.num_labels], dtype=torch.float32)
         for i in range(len(sample_indices)):
             pxs[i, :] = self.pixels[sample_indices[i], :]
         samples = {
-            'x': pxs
+            'x': pxs.cuda()
         }
         return samples
 

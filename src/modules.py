@@ -316,18 +316,21 @@ class Distiller(nn.Module):
 
         N = kwargs['dim']
         self.encoder_mat = nn.Linear(N, N, bias=False)
-        self.encoder_mat.weight.data.copy(torch.eye(N)+torch.rand(N, N)/10)
+        self.encoder_mat.weight.data.copy_(torch.eye(N))
         self.decoder_mat = nn.Linear(N, N, bias=False)
-        self.decoder_mat.weight.data.copy(torch.eye(N)+torch.rand(N, N)/10)
+        self.decoder_mat.weight.data.copy_(torch.eye(N))
 
     def forward(self, **net_input):
+        self.encoder_mat.weight.data.clamp_(max=1)
         self.decoder_mat.weight.data.clamp_(min=0, max=1)
 
         x = net_input['x']
         y = self.encoder_mat(x)
-        x_hat = self.deocder_mat(y)
+        x_hat = self.decoder_mat(y)
         net_input['y'] = y
-        net_input['x_hat'] = x
+        net_input['x_hat'] = x_hat
+
+        return net_input
 
     def save_model(self, path, filename):
         model = {

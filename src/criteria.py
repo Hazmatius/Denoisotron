@@ -14,25 +14,28 @@ class DistillerLoss(nn.Module):
     def __init__(self, **kwargs):
         super(DistillerLoss, self).__init__()
 
-        self.alpha  = kwargs['alpha']
+        self.alpha = kwargs['alpha']
         self.beta = kwargs['beta']
         self.gamma = kwargs['gamma']
 
-        self.recon_criterion = nn.MSELoss() # L1Loss?
+        self.recon_criterion = nn.L1Loss()  # L1Loss?
 
         self.relu = nn.ReLU()
 
     def forward(self, **kwargs):
-        recon_loss = self.recon_criterion(kwargs['x_hat'], kwargs['x'])
+        # recon_loss = self.recon_criterion(kwargs['x_hat'], kwargs['x'])
+        recon_loss = ((kwargs['x_hat']-kwargs['x'])**4).mean()
 
         y = kwargs['y']
-        ortho_loss = (torch.mm(y, y.t())**2).mean()
-
-        sign_loss = self.relu(-1 * y).mean()
+        ym = torch.mean(y, dim=0)
+        ys = torch.std(y+torch.randn_like(y)*0.00001, dim=0)
+        yn = (y - ym)/ys
+        ortho_loss = (torch.mm(yn, yn.t())**2).mean()
+        sign_loss = (self.relu(-1 * y)**2).mean()
 
         loss = self.alpha * recon_loss + self.beta * ortho_loss + self.gamma * sign_loss
 
-        return {'loss': loss}
+        return {'loss': loss, 'recon': recon_loss, 'ortho': ortho_loss, 'sign': sign_loss}
 
 
 class SelfSupervisedEstimatorLoss(nn.Module):
