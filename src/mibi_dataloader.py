@@ -45,7 +45,7 @@ def get_tensor_from_dict(point, field, **kwargs):
     are width and height of the variable specified by 'field'
     """
     markers = point['markers']
-    test_img = torch.tensor(point['counts'][markers[0]])
+    test_img = torch.tensor(point[field][markers[0]])
     width = test_img.size(0)
     height = test_img.size(1)
 
@@ -216,6 +216,10 @@ def listdir(folder):
     return contents
 
 
+def get_content(folder):
+    return os.path.join(folder, listdir(folder)[0])
+
+
 class PointReader:
     """
     Used to load the raw data of a MIBI dataset, the main function is "load_data", which takes in 4 main arguments:
@@ -226,9 +230,11 @@ class PointReader:
     kwargs are option arguments, more details in the load_data docstring
     """
     # data_folder is the folder full of data
-    # label_type is one of ['none', 'pixel', 'point']
     # input_format is one of ['tiff', 'multitiff', 'tiffolder', 'matfile']
     # output_format is one of ['point', 'marker', 'pixel']
+    # label_args:
+    #   label_type is one of ['regression', 'categorical']
+    #   label_format is one of ['image', 'folder', 'csv']
 
     @staticmethod
     def load_data(data_folder, input_format, output_format, label_args, **kwargs):
@@ -250,8 +256,8 @@ class PointReader:
         """
         results = PointReader.get_metadata(data_folder, label_args, **kwargs)
         results = PointReader.get_raw_data(results, input_format, **kwargs)
-        results = PointReader.reorganize_data(results, output_format, **kwargs)
-        results = PointReader.organize_labels(results, output_format, **kwargs)
+        results = PointReader.reorganize_data(results, output_format, label_args, **kwargs)
+        results = PointReader.organize_labels(results, label_args, **kwargs)
         del results['points']
 
         return results
@@ -269,9 +275,9 @@ class PointReader:
             label_format = label_args['label_format']
             if label_format == 'image':
                 contents = [i for i in contents if os.path.isdir(os.path.join(data_folder, i))]
-                data_paths = [os.path.join(data_folder, i, 'data') for i in contents]
+                data_paths = [get_content(os.path.join(data_folder, i, 'data')) for i in contents]
                 label_paths = [os.path.join(data_folder, i, 'label.tif') for i in contents]
-                labels = [os.imread(i) for i in label_paths]
+                labels = [skimage_io.imread(i) for i in label_paths]
                 results['data_paths'] = data_paths
                 results['point_labels'] = labels
             elif label_format == 'folder':
@@ -286,8 +292,8 @@ class PointReader:
                     results['point_labels'] = labels
             elif label_format == 'csv':
                 csvpath = label_args['csv_path']
-                contents = [i for i in contents if os.path.isdir(os.path.join(data_folder, i))]
-                data_paths = [os.path.join(data_folder, i, 'data') for i in contents]
+                contents = [i for i in contents if not i.endswith('.csv')]
+                data_paths = [os.path.join(data_folder, i) for i in contents]
                 label_dict = get_labels_from_csv(csvpath)
                 labels = [label_dict[i.split('.')[0]] for i in contents]
                 results['data_paths'] = data_paths
@@ -300,13 +306,13 @@ class PointReader:
     @staticmethod
     def get_raw_data(results, input_format, **kwargs):
         # Loading the data
-        if input_format == 'tiff':
+        if input_format == 'single_tiff':
             points = [loadpoint_tiff_single(i) for i in results['data_paths']]
-        elif input_format == 'multitiff':
+        elif input_format == 'multi_tiff':
             points = [loadpoint_tiff_multi(i) for i in results['data_paths']]
-        elif input_format == 'tifffolder':
+        elif input_format == 'tiff_folder':
             points = [loadpoint_tiff_folder(i) for i in results['data_paths']]
-        elif input_format == 'matfile':
+        elif input_format == 'mat_file':
             points = [loadpoint_mat_file(i) for i in results['data_paths']]
         else:
             raise SystemExit('Error: input_format must be one of [\'tiff\', \'multitiff\', \'tifffolder\', \'matfile\']')
@@ -331,9 +337,19 @@ class PointReader:
         if label_args != 'none':
             results['raw_labels'] = list()
 
+        if 'field' in kwargs:
+            field = kwargs['field']
+        else:
+            field = 'counts'
+
+        if 'markers' in kwargs:
+            use_markers = kwargs['markers']
+        else:
+            use_markers = results['points'][0]['markers']
+
         if output_format == 'point':
             for point in results['points']:
-                array, markers = get_tensor_from_dict(point, 'counts')
+                array, markers = get_tensor_from_dict(point, field, markers=use_markers)
                 results['samples'].append(array.unsqueeze(0))
                 results['sources'].append(point['path'])
                 if label_args != 'none':
@@ -341,18 +357,17 @@ class PointReader:
 
         elif output_format == 'marker':
             for point in results['points']:
-                for j in range(n_channels):
-                    marker = point['markers'][j]
-                    results['samples'].append(torch.tensor(point['counts'][marker]).unsqueeze(0).unsqueeze(0).float())
+                for marker in use_markers:
+                    results['samples'].append(torch.tensor(point[field][marker]).unsqueeze(0).unsqueeze(0).float())
                     results['sources'].append(point['path'] + ':' + marker)
                     if label_args != 'none':
                         results['raw_labels'].append(point['point_label'])
 
         elif output_format == 'pixel':
             for point in results['points']:
-                array, markers = get_tensor_from_dict(point, 'counts')
-                for i in range(array.shape[0]):
-                    for j in range(array.shape[1]):
+                array, markers = get_tensor_from_dict(point, field, markers=use_markers)
+                for i in range(array.shape[1]):
+                    for j in range(array.shape[2]):
                         results['samples'].append(array[:, i, j].unsqueeze(0))
                         results['sources'].append(point['path'] + ':[' + str(i) + ',' + str(j) + ']')
                         if label_args != 'none':
@@ -386,7 +401,8 @@ class PointReader:
                     else:
                         results['labels'] = [int(i) for i in results['raw_labels']]
                 n_classes = len(label_dict.keys())
-                results['labels_onehot'] = [torch.zeros(1,n_classes)._scatter(1,torch.tensor(i).unsqueeze(0).long(),1) for i in results['labels']]
+                # print(n_classes)
+                results['labels_onehot'] = [torch.zeros(1, n_classes).scatter_(1,torch.tensor(i).unsqueeze(0).unsqueeze(0).long(),1) for i in results['labels']]
         return results
 
 

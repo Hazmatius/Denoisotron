@@ -6,17 +6,20 @@ import numpy as np
 
 main_folder = '/Users/raymondbaranski/Desktop/data/'
 
-point1 = md.loadPoint_tiffFolder(main_folder + 'tif_folders/Point1', 'TIFs')
-print(type(point1['tags']['Au']['XResolution']))
-print(point1['tags']['Au']['XResolution'])
+point1 = md.loadpoint_tiff_folder(main_folder + 'tif_folders/Point1', 'TIFs')
+point2 = md.loadpoint_tiff_folder(main_folder + 'tif_folders/Point2', 'TIFs')
 
-md.savePoint_mat(point1, main_folder + 'tif_folders/Point1')
+point1['lambdas'] = point1['counts']
+point2['lambdas'] = point2['counts']
 
-point2 = md.loadPoint_mat(main_folder + 'tif_folders/Point1.mat')
-print(type(point2['tags']['Au']['XResolution']))
-print(point2['tags']['Au']['XResolution'])
+md.savepoint_mat(point1, main_folder + 'mat_files/Point1')
+md.savepoint_mat(point2, main_folder + 'mat_files/Point2')
 
-md.savePoint_mat(point2, main_folder + 'tif_folders/Point1_1')
-point3 = md.loadPoint_mat(main_folder + 'tif_folders/Point1_1.mat')
-print(type(point3['tags']['Au']['XResolution']))
-print(point3['tags']['Au']['XResolution'])
+# point2 = md.loadPoint_mat(main_folder + 'tif_folders/Point1.mat')
+# print(type(point2['tags']['Au']['XResolution']))
+# print(point2['tags']['Au']['XResolution'])
+#
+# md.savePoint_mat(point2, main_folder + 'tif_folders/Point1_1')
+# point3 = md.loadPoint_mat(main_folder + 'tif_folders/Point1_1.mat')
+# print(type(point3['tags']['Au']['XResolution']))
+# print(point3['tags']['Au']['XResolution'])
