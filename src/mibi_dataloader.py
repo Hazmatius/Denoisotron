@@ -13,45 +13,58 @@ from scipy.ndimage import gaussian_filter
 import exifread
 from skimage import io as skimage_io
 from scipy import io as scipy_io
+from PIL import Image, ImageSequence
+from PIL.TiffTags import TAGS
+import csv
 
 
-def loadTIFF_folder(point_path, subfolder='TIFs'):
-    data_path = point_path + '/' + subfolder + '/'
-    files = os.listdir(data_path)
-    tifs = list()
-    for file in files:
-        if file.endswith('.tif') or file.endswith('.tiff'):
-            tifs.append(file)
-    labels = list()
-    counts = dict()
-    tags = dict()
-    for tif in tifs:
-        label = tif.replace('.tif', '')
-        labels.append(label)
-        counts[label] = skimage_io.imread(data_path + '/' + tif).astype(int)
-        with open(data_path + '/' + tif, 'rb') as f:
-            tags[label] = exifread.process_file(f)
-    point = dict()
-    point['counts'] = counts
-    point['labels'] = labels
-    point['tags'] = tags
-    return point
+def get_labels_from_csv(csvpath):
+    label_dict = dict()
+    with open(csvpath) as csvfile:
+        csvreader = csv.reader(csvfile, delimiter=',')
+        linenum = 0
+        for row in csvreader:
+            linenum += 1
+            if linenum != 1:
+                point = row[0]
+                label = row[1]
+                if label.isnumeric():
+                    label = float(label)
+                label_dict[point] = label
+    return label_dict
 
 
-def getMatrixFromDict(point):
-    labels = point['labels']
-    test_img = torch.tensor(point['counts'][labels[0]])
+def get_tensor_from_dict(point, field, **kwargs):
+    """
+    :param point: a dictionary expected to contain a 'markers' key, corresponding to 'labels' in MATLAB-verse. Note,
+    should be either a list or an np-array object array of strings
+    :param field: the field you wish to extract extract from the point as a matrix, such as 'counts'
+    :param kwargs: you may optionally specify which markers you want to extract with the 'markers' key-word argument,
+    specify as an iterable of strings.
+    :return: a 32-bit floating point tensor that is M x W x H, where M is the number of markers, W and H
+    are width and height of the variable specified by 'field'
+    """
+    markers = point['markers']
+    test_img = torch.tensor(point['counts'][markers[0]])
     width = test_img.size(0)
     height = test_img.size(1)
-    matrix = torch.zeros([len(labels), width, height]).float()
-    for i in range(len(labels)):
-        label = labels[i]
-        matrix[i, :, :] = torch.tensor(point['lambdas'][label]).float()
-    return matrix, labels
+
+    if 'markers' in kwargs:
+        tensor = torch.zeros([len(kwargs['markers']), width, height]).float()
+        for i in range(len(kwargs['markers'])):
+            marker = kwargs['markers'][i]
+            tensor[i, :, :] = torch.tensor(point[field][marker]).float()
+    else:
+        tensor = torch.zeros([len(markers), width, height]).float()
+        for i in range(len(markers)):
+            marker = markers[i]
+            tensor[i, :, :] = torch.tensor(point[field][marker]).float()
+    return tensor, markers
 
 
 def loadmat(filename):
     '''
+    RIPPED off of stackoverflow
     this function should be called instead of direct spio.loadmat
     as it cures the problem of not properly recovering python dictionaries
     from mat files. It calls the function check keys to cure all entries
@@ -60,8 +73,10 @@ def loadmat(filename):
     data = scipy_io.loadmat(filename, struct_as_record=False, squeeze_me=True)
     return _check_keys(data)
 
+
 def _check_keys(dict):
     '''
+    RIPPED off of stackoverflow
     checks if entries in dictionary are mat-objects. If yes
     todict is called to change them to nested dictionaries
     '''
@@ -70,8 +85,10 @@ def _check_keys(dict):
             dict[key] = _todict(dict[key])
     return dict
 
+
 def _todict(matobj):
     '''
+    RIPPED off of stackoverflow
     A recursive function which constructs from matobjects nested dictionaries
     '''
     dict = {}
@@ -84,13 +101,294 @@ def _todict(matobj):
     return dict
 
 
-def loadPoint_mat(point_path):
+def loadpoint_mat_file(point_path):
     point = loadmat(point_path)
-    labels = point['labels']
-    for i in range(len(labels)):
-        labels[i] = labels[i].strip()
-    point['labels'] = labels
+    markers = point['markers']
+    for i in range(len(markers)):
+        markers[i] = markers[i].strip()
+    point['markers'] = markers.tolist()
     return point
+
+
+def savepoint_mat(point, point_path):
+    point['markers'] = np.array(point['markers'], dtype=np.object)
+    scipy_io.savemat(point_path + '.mat', point)
+
+
+# Used to load a Point organized as a folder of tif images
+def loadpoint_tiff_folder(point_path, subfolder='TIFs'):
+    contents = listdir(os.path.join(point_path, subfolder))
+    tifs = [i for i in contents if i.endswith('.tif') or i.endswith('.tiff')]
+    tifs.sort()
+
+    markers = list()
+    counts = dict()
+    tags = dict()
+    for tif in tifs:
+        marker = tif.split('.')[0]
+        markers.append(marker)
+        counts[marker] = skimage_io.imread(os.path.join(point_path, subfolder, tif)).astype(int)
+
+        tif = Image.open(os.path.join(point_path, subfolder, tif))
+        subtags = dict()
+        for key in tif.tag:
+            tagname = TAGS.get(key, 'missing')
+            subtags[tagname] = tif.tag[key][0]
+        tags[marker] = subtags
+    point = dict()
+    point['counts'] = counts
+    point['markers'] = markers
+    point['tags'] = tags
+    point['path'] = point_path
+    return point
+
+
+# Used to load a Point organized as a multi-page tif
+def loadpoint_tiff_multi(point_path):
+    multitiff = Image.open(point_path)
+
+    markers = list()
+    counts = dict()
+    tags = dict()
+
+    for i in range(multitiff.n_frames):
+        multitiff.seek(i)
+        subtags = dict()
+        for key in multitiff.tag:
+            tagname = TAGS.get(key, 'missing')
+            subtags[tagname] = multitiff.tag[key]
+            if tagname == 'PageName':
+                marker = multitiff.tag[key][0]
+        markers.append(marker)
+        counts[marker] = np.array(multitiff).astype(int)
+        tags[marker] = subtags
+
+    point = dict()
+    point['counts'] = counts
+    point['markers'] = markers
+    point['tags'] = tags
+    point['path'] = point_path
+
+    return point
+
+
+def loadpoint_tiff_single(tif_path):
+    tif = Image.open(tif_path)
+
+    markers = list()
+    counts = dict()
+    tags = dict()
+
+    marker = 'unknown'
+    subtags = dict()
+    for key in tif.tag:
+        tagname = TAGS.get(key, 'missing')
+        subtags[tagname] = tif.tag[key]
+        if tagname == 'PageName':
+            marker = tif.tag[key][0]
+    if marker == 'unknown':
+        marker = os.path.basename(tif_path).split('.')[0].split('_')[-1]
+    markers.append(marker)
+    counts[marker] = np.array(tif).astype(int)
+    tags[marker] = subtags
+
+    point = dict()
+    point['counts'] = counts
+    point['markers'] = markers
+    point['tags'] = tags
+    point['path'] = tif_path
+
+    return point
+
+
+def get_num_channels(point):
+    return len(point['markers'])
+
+
+def get_size(point, dim):
+    test_marker = point['markers'][0]
+    return point['counts'][test_marker].shape[dim]
+
+
+def listdir(folder):
+    contents = os.listdir(folder)
+    contents = [i for i in contents if not i.startswith('.')]
+    return contents
+
+
+class PointReader:
+    """
+    Used to load the raw data of a MIBI dataset, the main function is "load_data", which takes in 4 main arguments:
+    data_folder specifies where the data is
+    label_type specifies whether and how the data is labeled
+    input_format specifies the format of the raw data to be read
+    output_format specifies the desired organization of the data for the MIBIDataLoader
+    kwargs are option arguments, more details in the load_data docstring
+    """
+    # data_folder is the folder full of data
+    # label_type is one of ['none', 'pixel', 'point']
+    # input_format is one of ['tiff', 'multitiff', 'tiffolder', 'matfile']
+    # output_format is one of ['point', 'marker', 'pixel']
+
+    @staticmethod
+    def load_data(data_folder, input_format, output_format, label_args, **kwargs):
+        """
+        :param data_folder: directory where all data for the dataset is stored
+        :param label_type: label_type should be one of ['none', 'pixel', 'point']. If 'none', assumes that data is just
+        strewn about about inside of the data_folder. If 'pixel', assumes that each point is nested inside of a folder
+        that also contains a label image containing pixel-wise labels. If 'point' assumes that the data_folder contains
+        label folders, named by their label, inside of each being all the points with that label
+        :param input_format: input_format should be one of ['tiff', 'multitiff', 'tifffolder', 'matfile']. If 'tiff',
+        points are assumed to be single-image tiff files (presumably channels have been seperated). If 'multitiff'
+        points are expected to be multi-page tiffs, with each page corresponding to a channel. If 'tifffolder', points
+        are expected to be organized as Point folders containing some substructure (usually a TIFs folder) containting
+        single-page TIF files corresponding to individual channels. If 'matfile', points are expected to be organized as
+
+        :param output_format:
+        :param kwargs:
+        :return:
+        """
+        results = PointReader.get_metadata(data_folder, label_args, **kwargs)
+        results = PointReader.get_raw_data(results, input_format, **kwargs)
+        results = PointReader.reorganize_data(results, output_format, **kwargs)
+        results = PointReader.organize_labels(results, output_format, **kwargs)
+        del results['points']
+
+        return results
+
+    @staticmethod
+    def get_metadata(data_folder, label_args, **kwargs):
+
+        results = dict()
+        contents = listdir(data_folder)
+        if label_args == 'none':
+            data_paths = [os.path.join(data_folder, i) for i in contents]
+            results['data_paths'] = data_paths
+
+        else:
+            label_format = label_args['label_format']
+            if label_format == 'image':
+                contents = [i for i in contents if os.path.isdir(os.path.join(data_folder, i))]
+                data_paths = [os.path.join(data_folder, i, 'data') for i in contents]
+                label_paths = [os.path.join(data_folder, i, 'label.tif') for i in contents]
+                labels = [os.imread(i) for i in label_paths]
+                results['data_paths'] = data_paths
+                results['point_labels'] = labels
+            elif label_format == 'folder':
+                all_labels = [i for i in contents if os.path.isdir(os.path.join(data_folder, i))]
+                data_paths = list()
+                labels = list()
+                for label in all_labels:
+                    subcontents = listdir(os.path.join(data_folder, label))
+                    data_paths.extend([os.path.join(data_folder, label, i) for i in subcontents])
+                    labels.extend([label for i in subcontents])
+                    results['data_paths'] = data_paths
+                    results['point_labels'] = labels
+            elif label_format == 'csv':
+                csvpath = label_args['csv_path']
+                contents = [i for i in contents if os.path.isdir(os.path.join(data_folder, i))]
+                data_paths = [os.path.join(data_folder, i, 'data') for i in contents]
+                label_dict = get_labels_from_csv(csvpath)
+                labels = [label_dict[i.split('.')[0]] for i in contents]
+                results['data_paths'] = data_paths
+                results['point_labels'] = labels
+            else:
+                raise SystemExit('Error: label_type must be one of [\'none\', \'pixel\', \'point\'].')
+
+        return results
+
+    @staticmethod
+    def get_raw_data(results, input_format, **kwargs):
+        # Loading the data
+        if input_format == 'tiff':
+            points = [loadpoint_tiff_single(i) for i in results['data_paths']]
+        elif input_format == 'multitiff':
+            points = [loadpoint_tiff_multi(i) for i in results['data_paths']]
+        elif input_format == 'tifffolder':
+            points = [loadpoint_tiff_folder(i) for i in results['data_paths']]
+        elif input_format == 'matfile':
+            points = [loadpoint_mat_file(i) for i in results['data_paths']]
+        else:
+            raise SystemExit('Error: input_format must be one of [\'tiff\', \'multitiff\', \'tifffolder\', \'matfile\']')
+
+        if 'point_labels' in results:
+            for i in range(len(points)):
+                points[i]['point_label'] = results['point_labels'][i]
+        results['points'] = points
+
+        return results
+
+    @staticmethod
+    def reorganize_data(results, output_format, label_args, **kwargs):
+        # Organize the data
+        n_points = len(results['points'])
+        n_channels = get_num_channels(results['points'][0])
+        width = get_size(results['points'][0], 0)
+        height = get_size(results['points'][0], 0)
+
+        results['samples'] = list()
+        results['sources'] = list()
+        if label_args != 'none':
+            results['raw_labels'] = list()
+
+        if output_format == 'point':
+            for point in results['points']:
+                array, markers = get_tensor_from_dict(point, 'counts')
+                results['samples'].append(array.unsqueeze(0))
+                results['sources'].append(point['path'])
+                if label_args != 'none':
+                    results['raw_labels'].append(point['point_label'])
+
+        elif output_format == 'marker':
+            for point in results['points']:
+                for j in range(n_channels):
+                    marker = point['markers'][j]
+                    results['samples'].append(torch.tensor(point['counts'][marker]).unsqueeze(0).unsqueeze(0).float())
+                    results['sources'].append(point['path'] + ':' + marker)
+                    if label_args != 'none':
+                        results['raw_labels'].append(point['point_label'])
+
+        elif output_format == 'pixel':
+            for point in results['points']:
+                array, markers = get_tensor_from_dict(point, 'counts')
+                for i in range(array.shape[0]):
+                    for j in range(array.shape[1]):
+                        results['samples'].append(array[:, i, j].unsqueeze(0))
+                        results['sources'].append(point['path'] + ':[' + str(i) + ',' + str(j) + ']')
+                        if label_args != 'none':
+                            label_format = label_args['label_format']
+                            if label_format == 'image':
+                                results['raw_labels'].append(point['point_label'][i, j])
+                            else:
+                                results['raw_labels'].append(point['point_label'])
+
+        else:
+            raise SystemExit('Error: output_format must be one of [\'point\', \'marker\', \'pixel\']')
+
+        return results
+
+    @staticmethod
+    def organize_labels(results, label_args, **kwargs):
+        if label_args == 'none':
+            pass
+        else:
+            if label_args['label_type'] == 'regression':
+                results['labels'] = results['raw_labels']
+            elif label_args['label_type'] == 'categorical':
+                label_dict = label_args['label_dict']
+                if label_args['label_format'] == 'image':
+                    results['labels'] = [int(i) for i in results['raw_labels']]
+                elif label_args['label_format'] == 'folder':
+                    results['labels'] = [label_dict[i] for i in results['raw_labels']]
+                elif label_args['label_format'] == 'csv':
+                    if isinstance(results['raw_labels'][0], str):
+                        results['labels'] = [label_dict[i] for i in results['raw_labels']]
+                    else:
+                        results['labels'] = [int(i) for i in results['raw_labels']]
+                n_classes = len(label_dict.keys())
+                results['labels_onehot'] = [torch.zeros(1,n_classes)._scatter(1,torch.tensor(i).unsqueeze(0).long(),1) for i in results['labels']]
+        return results
+
 
 
 class FlatTIFLoader:
@@ -108,7 +406,7 @@ class FlatTIFLoader:
         for file in files:
             if not file[0] == '.':
                 print(file)
-                points.append(loadPoint_mat(directory + file))
+                points.append(loadpoint_mat_file(directory + file))
 
         test_point = points[0]
         labels = test_point['labels']
@@ -117,7 +415,7 @@ class FlatTIFLoader:
         pixels = torch.zeros([0, num_channels]).float()
 
         for point in points:
-            point_pixels, labels = getMatrixFromDict(point)
+            point_pixels, labels = get_tensor_from_dict(point)
             point_pixels = torch.flatten(point_pixels, start_dim=1).float().transpose(0,1)
             pixels = torch.cat([pixels, point_pixels], dim=0)
 
@@ -387,7 +685,7 @@ class MultiTIFLoader:
         return images, labels, folders
 
 
-class MIBIData:
+class MIBIDataLoader:
     def __init__(self, **kwargs):
         tiff_loader = MultiTIFLoader()
 
@@ -608,7 +906,7 @@ class MIBIData:
         return dataset
 
 
-class EstimatorLoader(MIBIData):
+class EstimatorLoader(MIBIDataLoader):
     def __init__(self, **kwargs):
         super(EstimatorLoader, self).__init__(**kwargs)
 
@@ -645,7 +943,7 @@ class EstimatorLoader(MIBIData):
         return samples
 
 
-class DenoiserLoader(MIBIData):
+class DenoiserLoader(MIBIDataLoader):
     def __init__(self, **kwargs):
         super(DenoiserLoader, self).__init__()
 

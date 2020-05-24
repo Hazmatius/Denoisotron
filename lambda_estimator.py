@@ -53,15 +53,56 @@ def estimate_lambda(point, network):
         point['lambdas'] = lambdas
     return point
 
+def loadMat(dir, name):
+    struct = scipy_io.loadmat(dir + name + '.mat')
+    loadname = getname(struct.keys())
+    data = struct[loadname]
+    return torch.tensor(data)
+
+def getname(some_names):
+    for name in some_names:
+        if name[1] != '_':
+            return name
+    return 0
+
+def saveTensorAsMat(dir, name, data):
+    struct = {}
+    struct[name] = data.detach().cpu().numpy()
+    scipy_io.savemat(dir + name + '.mat', struct)
+
+def netEstimate(dir, name, network):
+    data = loadMat(dir, name).float()
+    if data.dim() == 2:
+        data = data.unsqueeze(0).unsqueeze(0)
+    elif data.dim() == 3:
+        data = data.permute(2, 0, 1).unsqueeze(1)
+    else:
+        return 0
+    ndata = network.process(data)
+    saveTensorAsMat(dir, 'lest_' + name, ndata[0, 0, :, :])
 
 
 
 # estimator_folder = '/Users/raymondbaranski/GitHub/Denoisotron/models/'
 # estimator_name = 'estimator-2'
+
 # input_path = '/Volumes/ALEX_SSD/BANGELO_LAB/190615/extracted/Point1'
 # output_path = '/Volumes/G-DRIVE USB/Point1'
-#
+
+# data_path = '/Users/raymondbaranski/GitHub/Noise_Estimation/data/'
 # estimator = SelfSupervisedEstimator.load_model(estimator_folder, estimator_name)
+
+# for i in range(1,151):
+#     print(i)
+#     netEstimate(data_path, 'rnoise1_' + str(i), estimator)
+#     netEstimate(data_path, 'rnoise2_' + str(i), estimator)
+
+
+
+# netEstimate(data_path, 'pnoise', estimator)
+# netEstimate(data_path, 'counts2', estimator)
+# netEstimate(data_path, 'counts3', estimator)
+
 #
 # point = loadTIFF_folder(input_path)
 # point = estimate_lambda(point, estimator)
