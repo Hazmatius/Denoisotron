@@ -106,7 +106,7 @@ class SelfSupervisedEstimator(nn.Module):
         self.integ_layer2 = SS_Submodule(32, 32, 3)
         self.integ_layer3 = SS_Submodule(32, 1, 3)
 
-    def process(self, x):
+    def forward(self, x):
         local_inf = self.local_layer2(self.local_layer1(x))
         globl_inf = self.globl_layer2(self.globl_layer1(x))
         integ_inf = torch.cat([local_inf, globl_inf], 1)
@@ -115,9 +115,9 @@ class SelfSupervisedEstimator(nn.Module):
         integ_inf = self.integ_layer3(integ_inf)
         return integ_inf
 
-    def forward(self, **net_input):
+    def train_forward(self, **net_input):
         sample = torch.poisson(net_input['x'])
-        l_hat = self.process(sample)
+        l_hat = self.forward(sample)
         net_input['l_hat'] = l_hat
         return net_input
 
@@ -188,5 +188,4 @@ class Denoiser(nn.Module):
         model = checkpoint['model'](**checkpoint['config'])
         model.load_state_dict(checkpoint['state_dict'])
         return model
-
 

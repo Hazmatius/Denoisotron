@@ -217,7 +217,7 @@ class Trial:
 
     @staticmethod
     def error_check(config, dataset_path, model_class):
-        dataset = mibi_dataloader.MIBIData.depickle(dataset_path)
+        dataset = mibi_dataloader.MIBIDataLoader.depickle(dataset_path)
         param_pass = True
         # test that model params were valid
         try:
@@ -257,7 +257,7 @@ class Trial:
 
     def train(self):
         if not self.done:
-            train_ds = mibi_dataloader.MIBIData.depickle(self.config['dataset_params']['train_ds_path'])
+            train_ds = mibi_dataloader.MIBIDataLoader.depickle(self.config['dataset_params']['train_ds_path'])
             self.training_time = self.trainer.train(
                 self.model,
                 train_ds,
@@ -268,7 +268,7 @@ class Trial:
 
     def test(self):
         if not self.done:
-            test_ds = mibi_dataloader.MIBIData.depickle(self.config['dataset_params']['test_ds_path'])
+            test_ds = mibi_dataloader.MIBIDataLoader.depickle(self.config['dataset_params']['test_ds_path'])
             Trainer.test(
                 self.model,
                 test_ds,
@@ -363,7 +363,7 @@ class Trainer:
 
         optimizer = torch.optim.Adam(model.parameters(), lr=kwargs['lr'], weight_decay=kwargs['decay'])
 
-        model_vars = model.forward(**{**batch_vars, **kwargs})
+        model_vars = model.train_forward(**{**batch_vars, **kwargs})
         error_vars = criterion(**{**batch_vars, **model_vars, **kwargs})
         loss = error_vars['loss']
 
@@ -412,20 +412,12 @@ class Trainer:
 
         return training_time
 
-    def update_model(self, model, model_input, criterion, **kwargs):
-        self.optimizer.zero_grad()
-        model_output = model.forward(**model_input)
-        error_dict = criterion(**{**model_input, **model_output})
-        loss = error_dict['loss']
-        loss.backward()
-        if 'clip' in kwargs and kwargs['clip'] is not None:
-            self.clip_gradient(model, kwargs['clip'])
-        self.optimizer.step()
-        return error_dict
+    # number of samples is fixed
+    # you can control the batch-size
 
     def run_epoch(self, model, dataset, criterion, logger, epoch, training_dir, **kwargs):
         dataset.prepare_epoch()
-        num_minibatches = int(dataset.get_epoch_length() / float(kwargs['batch_size']))
+        # num_minibatches = int(dataset.get_epoch_length() / float(kwargs['batch_size']))
 
         if kwargs['restart'] and self.restart_ticker >= kwargs['restart']:
             self.instantiate_optimizer(model, torch.optim.Adam, utils.filter_args(['lr', 'decay'], **kwargs))
@@ -448,6 +440,17 @@ class Trainer:
         # visual report for sanity
         print('\rEpoch:' + str(epoch) + ' > < ' + str(mean_loss) + ' ' * 100)
         model.save_model(training_dir, 'model_' + str(epoch))
+
+    def update_model(self, model, model_input, criterion, **kwargs):
+        self.optimizer.zero_grad()
+        model_output = model.train_forward(**model_input)
+        error_dict = criterion(**{**model_input, **model_output})
+        loss = error_dict['loss']
+        loss.backward()
+        if 'clip' in kwargs and kwargs['clip'] is not None:
+            self.clip_gradient(model, kwargs['clip'])
+        self.optimizer.step()
+        return error_dict
 
     def print_minibatch_info(self, minibatch_number, dataset, error_vars, **kwargs):
         num_minibatches = int(dataset.get_epoch_length() / float(kwargs['batch_size']))
@@ -474,7 +477,7 @@ class Trainer:
         while batch_vars is not None:
             batch_vars = test_set.get_next_minibatch(batch_size)
             if batch_vars is not None:
-                model_vars = model.forward(**{**batch_vars, **kwargs})
+                model_vars = model.train_forward(**{**batch_vars, **kwargs})
                 error_vars = criterion(**{**batch_vars, **model_vars, **kwargs})
                 # record loss
                 loss_val = error_vars['loss'].detach().item()
