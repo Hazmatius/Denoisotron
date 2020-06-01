@@ -211,50 +211,67 @@ def get_content(folder):
     return os.path.join(folder, listdir(folder)[0])
 
 
-def read_tif_as_tensor(path):
-    img = torch.tensor(skimage_io.imread(path))
+def read_image_as_tensor(path):
+    if path.split('.')[-1] == 'mat':
+        img = loadmat(path)
+    else:
+        img = torch.tensor(skimage_io.imread(path))
+
     if img.dim() == 2:
         return img.unsqueeze(0).unsqueeze(0)
     elif img.dim() == 3:
         return img.unsqueeze(0)
     else:
-        raise SystemExit('weird tif')
+        raise SystemExit('weird image')
 
 
 class PointReader:
     """
-    Used to load the raw data of a MIBI dataset, the main function is "load_data", which takes in 4 main arguments:
-    data_folder specifies where the data is
-    label_type specifies whether and how the data is labeled
-    input_format specifies the format of the raw data to be read
-    output_format specifies the desired organization of the data for the MIBIDataLoader
-    kwargs are option arguments, more details in the load_data docstring
+    Used to load the raw data of a MIBI dataset, the main function is "load_data"
     """
-    # data_folder is the folder full of data
-    # input_format is one of ['tiff', 'multitiff', 'tiffolder', 'matfile']
-    # output_format is one of ['point', 'marker', 'pixel']
-    # label_args:
-    #   label_type is one of ['regression', 'categorical']
-    #   label_format is one of ['image', 'folder', 'csv']
 
     @staticmethod
     def load_data(data_folder, input_format, output_format, label_args, **kwargs):
         """
-        :param data_folder: directory where all data for the dataset is stored
-        :param label_type: label_type should be one of ['none', 'pixel', 'point']. If 'none', assumes that data is just
-        strewn about about inside of the data_folder. If 'pixel', assumes that each point is nested inside of a folder
-        that also contains a label image containing pixel-wise labels. If 'point' assumes that the data_folder contains
-        label folders, named by their label, inside of each being all the points with that label
-        :param input_format: input_format should be one of ['tiff', 'multitiff', 'tifffolder', 'matfile']. If 'tiff',
-        points are assumed to be single-image tiff files (presumably channels have been seperated). If 'multitiff'
-        points are expected to be multi-page tiffs, with each page corresponding to a channel. If 'tifffolder', points
-        are expected to be organized as Point folders containing some substructure (usually a TIFs folder) containting
-        single-page TIF files corresponding to individual channels. If 'matfile', points are expected to be organized as
+        The load_data function handles the loading, organizing, and labeling of data.
 
-        :param output_format:
-        :param kwargs:
-        :return:
+        :param data_folder: directory where all data for the dataset is stored
+
+        :param input_format: input_format should be one of ['single_tiff', 'multi_tiff', 'tiff_folder', 'mat_file']
+               use 'single_tiff' to load data that is stored as single-page tiff files
+               use 'multi_tiff' to load data that is stored as multi-page tiff files
+               use 'tiff_folder' to load data that is stored as point-folders of tiffs
+               use 'mat_file' to load data that is stored in a .mat file
+
+        :param output_format: output_format should be one of ['point', 'marker', 'pixel']
+               use 'point' to organize the data as MIBI Points
+               use 'marker' to organize the data as separate channels (markers, labels)
+               use 'pixel' to organize the data as separate pixels
+
+        :param label_args: label_args should be either 'none', or a dictionary
+               use 'none' if there are no labels to load
+               if label_args is a dictionary, the expected keys are:
+               :key label_type: label_type should be one of ['regression', 'categorical']
+                    if label_type is 'categorical', you will also need...
+                    :key label_dict: a dictionary with label names as keys and integers as values, provides a mapping
+                         from label names to numeric values usable by a neural network
+               :key label_format: label_format should be one of ['image', 'folder', 'csv']
+                    if label_format is 'csv', you will also need...
+                    :key csv_path: path to a csv file full of labels
+
+        :keyword markers: an optional keyword argument, specifies which markers to use in the dataset
+
+        :keyword field: an optional keyword argument, specifies the field in a .mat file you want to load from
+
+        :return: Returns a dictionary with the following keys...
+                 :key samples: all of the individual data points loaded from 'data_folder' organized according to
+                      'output_format'.
+                 :key sources: a string for each data point in 'samples' recording where the data point came from
+                 Optionally can contain:
+                 :key labels: the label of each data point in samples, either a continuous value or an integer
+                 :key labels_onehot: if categorical, the one-hot vector version of each integer label
         """
+
         results = PointReader.get_metadata(data_folder, label_args, **kwargs)
         results = PointReader.get_raw_data(results, input_format, **kwargs)
         results = PointReader.reorganize_data(results, output_format, label_args, **kwargs)
@@ -265,7 +282,16 @@ class PointReader:
 
     @staticmethod
     def get_metadata(data_folder, label_args, **kwargs):
+        """
+        get_metadata uses the information in label_args to find all of the labels and raw data inside of data_folder
 
+        :param data_folder: specifies the location of the data to be loaded
+        :param label_args: see the docstring for load_data
+        :param kwargs: optional arguments, currently no recognized options
+        :return: results, a dictionary containing...
+                 :key data_paths: a string for each point loaded in the dataset
+                 :key point_labels: optional, only present if label_args was 'none'
+        """
         results = dict()
         contents = listdir(data_folder)
         if label_args == 'none':
@@ -274,13 +300,15 @@ class PointReader:
 
         else:
             label_format = label_args['label_format']
+
             if label_format == 'image':
                 contents = [i for i in contents if os.path.isdir(os.path.join(data_folder, i))]
                 data_paths = [get_content(os.path.join(data_folder, i, 'data')) for i in contents]
                 label_paths = [get_content(os.path.join(data_folder, i, 'label')) for i in contents]
-                labels = [read_tif_as_tensor(i) for i in label_paths]
+                labels = [read_image_as_tensor(i) for i in label_paths]
                 results['data_paths'] = data_paths
                 results['point_labels'] = labels
+
             elif label_format == 'folder':
                 all_labels = [i for i in contents if os.path.isdir(os.path.join(data_folder, i))]
                 data_paths = list()
@@ -291,6 +319,7 @@ class PointReader:
                     labels.extend([label for i in subcontents])
                     results['data_paths'] = data_paths
                     results['point_labels'] = labels
+
             elif label_format == 'csv':
                 csvpath = label_args['csv_path']
                 contents = [i for i in contents if not i.endswith('.csv')]
@@ -370,7 +399,7 @@ class PointReader:
                         if label_args != 'none':
                             label_format = label_args['label_format']
                             if label_format == 'image':
-                                results['raw_labels'].append(point['point_label'][i, j])
+                                results['raw_labels'].append(point['point_label'][:, :, i, j])
                             else:
                                 results['raw_labels'].append(point['point_label'])
 
@@ -437,9 +466,21 @@ class MIBIDataLoader:
         self._v_height = None
         self._vidxmax = None
 
+
+    @staticmethod
+    def merge_datasets():
+        pass
+
+    @staticmethod
+    def concatenate_datasets():
+        pass
+
     def rename_field(self, old_field, new_field):
         self.data[new_field] = self.data.pop(old_field)
         self.cropable[new_field] = self.cropable.pop(old_field)
+        if old_field in self.return_fields:
+            old_field_index = self.return_fields.index(old_field)
+            self.return_fields[old_field_index] = new_field
 
     def set_return_fields(self, return_fields):
         self.return_fields = return_fields

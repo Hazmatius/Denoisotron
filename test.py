@@ -4,16 +4,19 @@ import numpy as np
 
 
 
-main_folder = '/Users/raymondbaranski/Desktop/data/'
+main_folder = '/Users/raymondbaranski/GitHub/Denoisotron/demo_data/'
 
 point1 = md.loadpoint_tiff_folder(main_folder + 'tif_folders/Point1', 'TIFs')
 point2 = md.loadpoint_tiff_folder(main_folder + 'tif_folders/Point2', 'TIFs')
+point3 = md.loadpoint_tiff_folder(main_folder + 'tif_folders/Point3', 'TIFs')
 
 point1['lambdas'] = point1['counts']
 point2['lambdas'] = point2['counts']
+point3['lambdas'] = point3['counts']
 
 md.savepoint_mat(point1, main_folder + 'mat_files/Point1')
 md.savepoint_mat(point2, main_folder + 'mat_files/Point2')
+md.savepoint_mat(point3, main_folder + 'mat_files/Point3')
 
 # point2 = md.loadPoint_mat(main_folder + 'tif_folders/Point1.mat')
 # print(type(point2['tags']['Au']['XResolution']))

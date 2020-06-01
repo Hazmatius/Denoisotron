@@ -332,14 +332,11 @@ class Logger:
 class Trainer:
     def __init__(self, **kwargs):
         self.optimizer = None
-        self.lr_scheduler = None
-        self.epsilon = 0
-        self.loss_sum = 0
+        self.restart_ticker = 0
 
     def clip_gradient(self, model, clip):
         if clip is None:
             return
-        totalnorm = 0
         for p in model.parameters():
             if p.grad is None:
                 continue
@@ -376,103 +373,92 @@ class Trainer:
             self.clip_gradient(model, kwargs['clip'])
         optimizer.step()
 
+    def instantiate_optimizer(self, model, optimizer_class, optimizer_args, **kwargs):
+        self.optimizer = optimizer_class(model.parameters(), **optimizer_args)
+        self.restart_ticker = 0
+
     def train(self, model, train_set, criterion, logger, home_dir, **kwargs):
-        model.train()
-        temp_args = {}
-        if 'error_target' in kwargs:
-            temp_args['error_target'] = kwargs['error_target']
-        defaults = {'lr': 0.01, 'batch_size': 100, 'epochs': 10, 'report': 5, 'crop': 32, 'clip': None, 'decay': 0,
-                    'epoch_frac': 1, 'restart': -1}
-        kwargs = utils.get_arg_defaults(defaults, **kwargs)
-        # if there is no optimizer or we want to use a new learning rate, instantiate Adam optimizer
-        if self.optimizer is None:
-            self.optimizer = torch.optim.Adam(model.parameters(), lr=kwargs['lr'], weight_decay=kwargs['decay'])
-        if self.optimizer is not None and ('continue' in kwargs and not kwargs['continue']):
-            self.optimizer = torch.optim.Adam(model.parameters(), lr=kwargs['lr'], weight_decay=kwargs['decay'])
+        kwargs = utils.get_arg_defaults({'report': 1, 'clip': None, 'epoch_frac': 1, 'restart': False}, **kwargs)
 
-        num_minibatches = int(train_set.get_epoch_length() / float(kwargs['batch_size']))
-        train_set.set_crop(kwargs['crop'])
-        t = time.time()
-
-        training_dir = home_dir + time.strftime('%Y%b%d_%H-%M-%S') + '/'
+        # create directory to save models to during trianing
+        timestamp = time.strftime('%Y%b%d_%H-%M-%S')
+        training_dir = home_dir + timestamp + '/'
+        print('Creating model-save directory at ' + training_dir)
         if not os.path.exists(training_dir):
             os.makedirs(training_dir)
-        restart_countdown = 0
+
+        # make all parameters of model trainable
+        model.train()
+        for p in model.parameters():
+            p.requires_grad = True
+
+        # if there is no optimizer or we want to use a new learning rate, instantiate Adam optimizer
+        if self.optimizer is None or ('continue' in kwargs and kwargs['continue'] is False):
+            self.instantiate_optimizer(model, torch.optim.Adam, utils.filter_args(['lr', 'decay'], **kwargs))
+
+        # train the model
+        t = time.time()
+        self.restart_ticker = 0
         for epoch in range(model.start_epoch, model.start_epoch + kwargs['epochs']):
-            restart_countdown += 1
-            if restart_countdown == kwargs['restart']:
-                self.optimizer = torch.optim.Adam(model.parameters(), lr=kwargs['lr'], weight_decay=kwargs['decay'])
-                restart_countdown = 0
-            train_set.prepare_epoch()
-            self.loss_sum = minibatch_number = frac = batch_vars = 0
-            while (batch_vars is not None) and (frac < kwargs['epoch_frac']):
-                frac = kwargs['batch_size'] * minibatch_number / float(train_set.get_epoch_length())
-                batch_vars = train_set.get_next_minibatch(kwargs['batch_size'])
-                if batch_vars is not None:
-                    model_vars = model.forward(**batch_vars)
-                    error_vars = criterion(**{**batch_vars, **model_vars})
-
-                    # we assume that loss is always a key in the dict returned by the criterion
-                    loss = error_vars['loss']
-
-                    self.optimizer.zero_grad()
-                    loss.backward()
-                    if kwargs['clip'] is not None:
-                        self.clip_gradient(model, kwargs['clip'])
-                    self.optimizer.step()
-
-                    if 'error_target' in temp_args:
-                        if loss < temp_args['error_target']:
-                            model.noise += torch.rand(1).item()/20
-                        if loss > temp_args['error_target']:
-                            model.noise -= torch.rand(1).item()/20
-                            if model.noise < 0:
-                                model.noise = 0
-
-                    # record loss
-                    error_vars['loss'] = error_vars['loss'].detach()
-                    self.loss_sum += error_vars['loss'].detach().item()
-                    logger.log(epoch, **error_vars)
-
-                    # error_vars = self.iterate_model(model, criterion, batch_vars, logger, epoch, **kwargs)
-                    self.print_minibatch_info(minibatch_number, num_minibatches, error_vars)
-                    minibatch_number += 1
-            mean_loss = self.loss_sum / minibatch_number
-            # visual report for sanity
-            print('\rEpoch:' + str(epoch) + ' > < ' + str(mean_loss) + ' '*100)
-            model.save_model(training_dir, 'model_' + str(epoch))
-
+            self.run_epoch(model, train_set, criterion, logger, epoch, training_dir, **kwargs)
+        model.start_epoch = model.start_epoch + kwargs['epochs']
         training_time = time.time() - t
         print('trained in ' + str(training_time) + ' seconds')
+
+        # set model to inference mode
         model.eval()
-        model.start_epoch = model.start_epoch + kwargs['epochs']
+        for p in model.parameters():
+            p.requires_grad = False
+
         return training_time
 
-    def print_minibatch_info(self, minibatch_number, num_minibatches, error_vars):
-        print(
-            '\r    Minibatch:' + str(minibatch_number) + '/' + str(num_minibatches) + ' > < ' +
-            self.print_dict(error_vars) + ' ' * 100, end=''
-        )
-
-    def iterate_model(self, model, criterion, batch_vars, logger, epoch, **kwargs):
-        model_vars = model.forward(**batch_vars)
-        error_vars = criterion(**{**batch_vars, **model_vars})
-
-        # we assume that loss is always a key in the dict returned by the criterion
-        loss = error_vars['loss']
-
+    def update_model(self, model, model_input, criterion, **kwargs):
         self.optimizer.zero_grad()
-        loss.backward(retain_graph=True)
-        if kwargs['clip'] is not None:
+        model_output = model.forward(**model_input)
+        error_dict = criterion(**{**model_input, **model_output})
+        loss = error_dict['loss']
+        loss.backward()
+        if 'clip' in kwargs and kwargs['clip'] is not None:
             self.clip_gradient(model, kwargs['clip'])
         self.optimizer.step()
+        return error_dict
 
-        # record loss
-        error_vars['loss'] = error_vars['loss'].detach()
-        self.loss_sum += error_vars['loss'].detach().item()
-        logger.log(epoch, **error_vars)
+    def run_epoch(self, model, dataset, criterion, logger, epoch, training_dir, **kwargs):
+        dataset.prepare_epoch()
+        num_minibatches = int(dataset.get_epoch_length() / float(kwargs['batch_size']))
 
-        return error_vars
+        if kwargs['restart'] and self.restart_ticker >= kwargs['restart']:
+            self.instantiate_optimizer(model, torch.optim.Adam, utils.filter_args(['lr', 'decay'], **kwargs))
+
+        minibatch_number = frac = 0
+        batch_vars = {}
+        epoch_loss = 0
+
+        while (batch_vars is not None) and (frac < kwargs['epoch_frac']):
+            batch_vars = dataset.get_next_minibatch(kwargs['batch_size'])
+            if batch_vars is not None:
+                error_vars = self.update_model(model, batch_vars, criterion, **kwargs)
+                for e in error_vars:
+                    error_vars[e] = error_vars[e].detach()
+                epoch_loss += error_vars['loss'].item()
+                logger.log(epoch, **error_vars)
+                frac, minibatch_number = self.print_minibatch_info(minibatch_number, dataset, error_vars, **kwargs)
+
+        mean_loss = epoch_loss / minibatch_number
+        # visual report for sanity
+        print('\rEpoch:' + str(epoch) + ' > < ' + str(mean_loss) + ' ' * 100)
+        model.save_model(training_dir, 'model_' + str(epoch))
+
+    def print_minibatch_info(self, minibatch_number, dataset, error_vars, **kwargs):
+        num_minibatches = int(dataset.get_epoch_length() / float(kwargs['batch_size']))
+        frac = kwargs['batch_size'] * minibatch_number / float(dataset.get_epoch_length())
+        frac_minibatches = int(frac * num_minibatches)
+        print(
+            '\r    Minibatch:' + str(minibatch_number) + '/' + str(frac_minibatches) + '/' + str(num_minibatches) +
+            ' > < ' + self.print_dict(error_vars) + ' ' * 100, end=''
+        )
+        minibatch_number += 1
+        return frac, minibatch_number
 
     @staticmethod
     def test(model, test_set, criterion, logger, **kwargs):
@@ -483,7 +469,7 @@ class Trainer:
         batch_vars = -1
         print()
         test_set.prepare_epoch()
-        loss_sum = 0
+        epoch_loss = 0
         batch_count = 0
         while batch_vars is not None:
             batch_vars = test_set.get_next_minibatch(batch_size)
@@ -492,9 +478,9 @@ class Trainer:
                 error_vars = criterion(**{**batch_vars, **model_vars, **kwargs})
                 # record loss
                 loss_val = error_vars['loss'].detach().item()
-                loss_sum += loss_val
+                epoch_loss += loss_val
                 print(loss_val)
                 batch_count += 1
                 error_vars['loss'] = error_vars['loss'].detach()
                 logger.log(0, **error_vars)
-        print('Average loss: ', loss_sum / batch_count)
+        print('Average loss: ', epoch_loss / batch_count)
