@@ -394,7 +394,7 @@ class Trainer:
 
         # if there is no optimizer or we want to use a new learning rate, instantiate Adam optimizer
         if self.optimizer is None or ('continue' in kwargs and kwargs['continue'] is False):
-            self.instantiate_optimizer(model, torch.optim.Adam, utils.filter_args(['lr', 'decay'], **kwargs))
+            self.instantiate_optimizer(model, torch.optim.Adam, utils.filter_args(['lr'], **kwargs))
 
         # train the model
         t = time.time()

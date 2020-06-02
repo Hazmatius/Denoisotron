@@ -457,7 +457,7 @@ class MIBIDataLoader:
                 self.cropable[field] = False
 
         self.any_cropable = False
-        self.return_fields = None
+        self.return_fields = dict()
         self.data_shape = None
         self.crop = None
         self.stride = None

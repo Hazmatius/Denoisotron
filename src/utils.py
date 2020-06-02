@@ -65,10 +65,11 @@ def get_arg_default(kwarg, default, **kwargs):
 
 
 def get_arg_defaults(defaults, **kwargs):
+    output = kwargs
     for kwarg in defaults:
-        if kwarg in kwargs:
-            defaults[kwarg] = kwargs[kwarg]
-    return defaults
+        if kwarg not in kwargs:
+            output[kwarg] = defaults[kwarg]
+    return output
 
 
 def get_arg_index(kwarg, index, **kwargs):
