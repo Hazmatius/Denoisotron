@@ -116,8 +116,8 @@ class SelfSupervisedEstimator(nn.Module):
         return integ_inf
 
     def train_forward(self, **net_input):
-        sample = torch.poisson(net_input['x'])
-        l_hat = self.forward(sample)
+        x = torch.poisson(net_input['l'])
+        l_hat = self.forward(x)
         net_input['l_hat'] = l_hat
         return net_input
 

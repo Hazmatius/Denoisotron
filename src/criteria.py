@@ -44,7 +44,7 @@ class SelfSupervisedEstimatorLoss(nn.Module):
         self.recon_criterion = nn.MSELoss()
 
     def forward(self, **kwargs):
-        loss = self.recon_criterion(kwargs['l_hat'], kwargs['x'])
+        loss = self.recon_criterion(kwargs['l_hat'], kwargs['l'])
         return {'loss': loss}
 
 

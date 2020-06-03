@@ -294,6 +294,10 @@ class PointReader:
         """
         results = dict()
         contents = listdir(data_folder)
+        if 'number' in kwargs and kwargs['number'] <= len(contents):
+            perm = np.random.permutation(len(contents))
+            contents = [contents[perm[i]] for i in range(kwargs['number'])]
+
         if label_args == 'none':
             data_paths = [os.path.join(data_folder, i) for i in contents]
             results['data_paths'] = data_paths
@@ -436,10 +440,9 @@ class PointReader:
 
 
 class MIBIDataLoader:
-    def __init__(self, data_folder, input_format, output_format, label_args, **kwargs):
-        self.data = PointReader.load_data(data_folder, input_format, output_format, label_args, **kwargs)
+    def __init__(self, data, **kwargs):
+        self.data = data
         self.num_samples = len(self.data['samples'])
-
         if torch.cuda.is_available():
             self.device = 'cuda'
         else:
@@ -466,6 +469,10 @@ class MIBIDataLoader:
         self._v_height = None
         self._vidxmax = None
 
+    @staticmethod
+    def init_raw(data_folder, input_format, output_format, label_args, **kwargs):
+        data = PointReader.load_data(data_folder, input_format, output_format, label_args, **kwargs)
+        return MIBIDataLoader(data)
 
     @staticmethod
     def merge_datasets():
