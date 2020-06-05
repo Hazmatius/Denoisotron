@@ -34,6 +34,31 @@ def get_labels_from_csv(csvpath):
     return label_dict
 
 
+def split_array(array, img_size):
+    if img_size is None or (array.shape[2] == img_size and array.shape[3] == img_size):
+        return [array], ['']
+    else:
+        sub_arrays = list()
+        sub_array_idxs = list()
+        for i in range(int(array.shape[2] / img_size)):
+            for j in range(int(array.shape[3] / img_size)):
+                sub_array = array[:, :, (i * img_size):(i * img_size + img_size), (j * img_size):(j * img_size + img_size)]
+                sub_arrays.append(sub_array)
+                sub_array_idxs.append(':[' + str(i) + ',' + str(j) + ']')
+        return sub_arrays, sub_array_idxs
+
+
+def split_labels(raw_label, label_format, num_elements, img_size):
+    if num_elements == 1:
+        return [raw_label]
+    else:
+        if label_format is 'image':
+            subarrays, _ = split_array(raw_label, img_size)
+            return subarrays
+        else:
+            return [raw_label] * num_elements
+
+
 def get_tensor_from_dict(point, field, **kwargs):
     """
     :param point: a dictionary expected to contain a 'markers' key, corresponding to 'labels' in MATLAB-verse. Note,
@@ -49,7 +74,7 @@ def get_tensor_from_dict(point, field, **kwargs):
     width = test_img.size(0)
     height = test_img.size(1)
 
-    if 'markers' in kwargs:
+    if 'markers' in kwargs and kwargs['markers'] is not None:
         tensor = torch.zeros([len(kwargs['markers']), width, height]).float()
         for i in range(len(kwargs['markers'])):
             marker = kwargs['markers'][i]
@@ -375,23 +400,46 @@ class PointReader:
         if 'markers' in kwargs:
             use_markers = kwargs['markers']
         else:
-            use_markers = results['points'][0]['markers']
+            use_markers = None
+
+        if 'img_size' in kwargs:
+            img_size = kwargs['img_size']
+        else:
+            img_size = None
 
         if output_format == 'point':
             for point in results['points']:
                 array, markers = get_tensor_from_dict(point, field, markers=use_markers)
-                results['samples'].append(array.unsqueeze(0))
-                results['sources'].append(point['path'])
+
+                sub_arrays, sub_sources = split_array(array.unsqueeze(0), img_size)
+                sub_arrays = [i for i in sub_arrays]
+                sub_sources = [point['path'] + i for i in sub_sources]
+
+                results['samples'].extend(sub_arrays)
+                results['sources'].extend(sub_sources)
+
                 if label_args != 'none':
-                    results['raw_labels'].append(point['point_label'])
+                    sub_labels = split_labels(point['point_label'], label_args['label_format'], len(sub_arrays), img_size)
+                    results['raw_labels'].extend(sub_labels)
 
         elif output_format == 'marker':
             for point in results['points']:
-                for marker in use_markers:
-                    results['samples'].append(torch.tensor(point[field][marker]).unsqueeze(0).unsqueeze(0).float())
-                    results['sources'].append(point['path'] + ':' + marker)
+                if use_markers is None:
+                    markers = point['markers']
+                else:
+                    markers = use_markers
+                for marker in markers:
+                    array = torch.tensor(point[field][marker]).unsqueeze(0).unsqueeze(0).float()
+
+                    sub_arrays, sub_sources = split_array(array, img_size)
+                    sub_sources = [point['path'] + ':' + marker + i for i in sub_sources]
+
+                    results['samples'].extend(sub_arrays)
+                    results['sources'].extend(sub_sources)
+
                     if label_args != 'none':
-                        results['raw_labels'].append(point['point_label'])
+                        sub_labels = split_labels(point['point_label'], label_args['label_format'], len(sub_arrays), img_size)
+                        results['raw_labels'].extend(sub_labels)
 
         elif output_format == 'pixel':
             for point in results['points']:
@@ -427,7 +475,7 @@ class PointReader:
                     results['labels'] = [PointReader.labelify(i) for i in results['raw_labels']]
                 elif label_args['label_format'] == 'csv':
                     if isinstance(results['raw_labels'][0], str):
-                        results['labels'] = [PointReader.labelify(i) for i in results['raw_labels']]
+                        results['labels'] = [PointReader.labelify(label_dict[i]) for i in results['raw_labels']]
                     else:
                         results['labels'] = [PointReader.labelify(i) for i in results['raw_labels']]
                 n_classes = len(label_dict.keys())

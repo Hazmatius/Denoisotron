@@ -83,14 +83,14 @@ def netEstimate(dir, name, network):
 
 
 
-# estimator_folder = '/Users/raymondbaranski/GitHub/Denoisotron/models/'
-# estimator_name = 'estimator-2'
+estimator_folder = '/Users/raymondbaranski/GitHub/Denoisotron/models/'
+estimator_name = 'estimator-2'
 
-# input_path = '/Volumes/ALEX_SSD/BANGELO_LAB/190615/extracted/Point1'
-# output_path = '/Volumes/G-DRIVE USB/Point1'
+input_path = '/Volumes/G-DRIVE USB/bangelo_data/BANGELO_LAB/190615/extracted/Point1'
+output_path = '/Volumes/G-DRIVE USB/Point1'
 
-# data_path = '/Users/raymondbaranski/GitHub/Noise_Estimation/data/'
-# estimator = SelfSupervisedEstimator.load_model(estimator_folder, estimator_name)
+data_path = '/Users/raymondbaranski/GitHub/Noise_Estimation/data/'
+estimator = SelfSupervisedEstimator.load_model(estimator_folder, estimator_name)
 
 # for i in range(1,151):
 #     print(i)
@@ -99,7 +99,7 @@ def netEstimate(dir, name, network):
 
 
 
-# netEstimate(data_path, 'pnoise', estimator)
+netEstimate(data_path, 'pnoise', estimator)
 # netEstimate(data_path, 'counts2', estimator)
 # netEstimate(data_path, 'counts3', estimator)
 
